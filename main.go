@@ -13,25 +13,25 @@ import (
 // -- Request / Response shapes (will move to a DTO file in stage 5)
 
 type createTaskRequest struct {
-	Title       string `json:title`
-	Description string `json:description`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type taskResponse struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title"`
-	Desription string    `json:"description"`
-	Completed  bool      `json:"completed"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Completed   bool      `json:"completed"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 func toResponse(t *domain.Task) taskResponse {
 	return taskResponse{
-		ID:         t.ID.String(),
-		Title:      t.Title,
-		Desription: t.Description,
-		Completed:  t.Completed,
-		CreatedAt:  t.CreatedAt,
+		ID:          t.ID.String(),
+		Title:       t.Title,
+		Description: t.Description,
+		Completed:   t.Completed,
+		CreatedAt:   t.CreatedAt,
 	}
 }
 
