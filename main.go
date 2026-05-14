@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/fahrishih/tasks/internal/task/adapters/outbound/memory"
 	"github.com/fahrishih/tasks/internal/task/app"
 	"github.com/fahrishih/tasks/internal/task/domain"
 	"github.com/gin-gonic/gin"
@@ -57,7 +58,8 @@ func writeError(c *gin.Context, err error) {
 }
 
 func main() {
-	svc := app.NewService()
+	repo := memory.New()
+	svc := app.NewService(repo)
 	r := gin.Default()
 
 	r.POST("/tasks", func(c *gin.Context) {

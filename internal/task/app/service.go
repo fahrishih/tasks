@@ -2,26 +2,19 @@ package app
 
 import (
 	"context"
-	"sync"
 
 	"github.com/fahrishih/tasks/internal/task/domain"
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	mu    sync.RWMutex
-	tasks map[uuid.UUID]*domain.Task
+	repo Repository
 }
 
-func NewService() *Service {
-	return &Service{
-		tasks: make(map[uuid.UUID]*domain.Task),
-	}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-// CreateTaskInput is the use case's input shape.
-// It belongs to the app layer - not the domain (which doesn't know about
-// "create requests") and not the transport (which has its own DTOs).
 type CreateTaskInput struct {
 	Title       string
 	Description string
@@ -32,49 +25,32 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (*domain.T
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
+	if err := s.repo.Create(ctx, t); err != nil {
+		return nil, err
+	}
 	return t, nil
 }
 
 func (s *Service) GetTask(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	t, ok := s.tasks[id]
-	if !ok {
-		return nil, domain.ErrTaskNotFound
-	}
-	return t, nil
+	return s.repo.Get(ctx, id)
 }
 
 func (s *Service) ListTasks(ctx context.Context) ([]*domain.Task, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]*domain.Task, 0, len(s.tasks))
-	for _, t := range s.tasks {
-		out = append(out, t)
-	}
-	return out, nil
+	return s.repo.List(ctx)
 }
 
 func (s *Service) CompleteTask(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t, ok := s.tasks[id]
-	if !ok {
-		return nil, domain.ErrTaskNotFound
+	t, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
 	}
 	t.MarkComplete()
+	if err := s.repo.Update(ctx, t); err != nil {
+		return nil, err
+	}
 	return t, nil
 }
 
 func (s *Service) DeleteTask(ctx context.Context, id uuid.UUID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.tasks[id]; !ok {
-		return domain.ErrTaskNotFound
-	}
-	delete(s.tasks, id)
-	return nil
+	return s.repo.Delete(ctx, id)
 }
