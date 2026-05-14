@@ -1,10 +1,11 @@
 package main
 
 import (
+	"errors"
 	"net/http"
-	"sync"
 	"time"
 
+	"github.com/fahrishih/tasks/internal/task/app"
 	"github.com/fahrishih/tasks/internal/task/domain"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -35,12 +36,28 @@ func toResponse(t *domain.Task) taskResponse {
 	}
 }
 
-var (
-	tasks = make(map[uuid.UUID]*domain.Task)
-	mu    sync.Mutex
-)
+// --- Domain error → HTTP status mapping (will move in Stage 5) ---
+
+func statusForError(err error) int {
+	switch {
+	case errors.Is(err, domain.ErrTaskNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, domain.ErrTaskDuplicate):
+		return http.StatusConflict
+	case errors.Is(err, domain.ErrInvalidTitle),
+		errors.Is(err, domain.ErrTitleTooLong):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func writeError(c *gin.Context, err error) {
+	c.JSON(statusForError(err), gin.H{"error": err.Error()})
+}
 
 func main() {
+	svc := app.NewService()
 	r := gin.Default()
 
 	r.POST("/tasks", func(c *gin.Context) {
@@ -50,15 +67,14 @@ func main() {
 			return
 		}
 
-		t, err := domain.NewTask(req.Title, req.Description)
+		t, err := svc.CreateTask(c.Request.Context(), app.CreateTaskInput{
+			Title:       req.Title,
+			Description: req.Description,
+		})
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeError(c, err)
 			return
 		}
-		mu.Lock()
-		tasks[t.ID] = t
-		mu.Unlock()
-
 		c.JSON(http.StatusCreated, toResponse(t))
 	})
 
@@ -69,23 +85,24 @@ func main() {
 			return
 		}
 
-		mu.Lock()
-		t, ok := tasks[id]
-		mu.Unlock()
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": domain.ErrTaskNotFound})
+		t, err := svc.GetTask(c.Request.Context(), id)
+		if err != nil {
+			writeError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, t)
 	})
 
 	r.GET("/tasks", func(c *gin.Context) {
-		mu.Lock()
-		out := make([]taskResponse, 0, len(tasks))
-		for _, t := range tasks {
+		ts, err := svc.ListTasks(c.Request.Context())
+		if err != nil {
+			writeError(c, err)
+			return
+		}
+		out := make([]taskResponse, 0, len(ts))
+		for _, t := range ts {
 			out = append(out, toResponse(t))
 		}
-		mu.Unlock()
 		c.JSON(http.StatusOK, out)
 	})
 
@@ -95,15 +112,11 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-
-		mu.Lock()
-		defer mu.Unlock()
-		t, ok := tasks[id]
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": domain.ErrTaskNotFound})
+		t, err := svc.CompleteTask(c.Request.Context(), id)
+		if err != nil {
+			writeError(c, err)
 			return
 		}
-		t.MarkComplete()
 		c.JSON(http.StatusOK, toResponse(t))
 	})
 
@@ -113,15 +126,8 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-
-		mu.Lock()
-		_, ok := tasks[id]
-		if ok {
-			delete(tasks, id)
-		}
-		mu.Unlock()
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": domain.ErrTaskNotFound})
+		if err := svc.DeleteTask(c.Request.Context(), id); err != nil {
+			writeError(c, err)
 			return
 		}
 		c.Status(http.StatusNoContent)
